@@ -250,12 +250,14 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
         //Write video
         videoWriter.write(frame);
     }
-
+    boolean saveToVideo = false;
     Mat lastFrame;
     int skipper = 0;
     boolean applyWatermark = false;
     public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
-
+            if(saveToVideo){
+                videoservice.Save(inputFrame.rgba());
+            }
             return inputFrame.rgba();
     }
 }

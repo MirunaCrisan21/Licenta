@@ -36,7 +36,7 @@ public class VideoService {
     private static final int FRAME_RATE = 30;
     private static final int FRAME_WIDTH = 640;
     private static final int FRAME_HEIGHT = 480;
-    private ArrayList<String> videos = new ArrayList<>();
+    private Queue<String> videos = new PriorityQueue<>();
     private Size matSize;
     private VideoWriter mVideoWriter;
     private Thread videoSavingThread = new Thread(new Runnable() {
@@ -85,11 +85,27 @@ public class VideoService {
             }
         }
     };
+    public class MyRunnable implements Runnable {
 
+        public MyRunnable(Mat parameter) {
+            // store parameter for later user
+            frame = parameter;
+        }
+        private Mat frame;
+        public void run() {
+            try{
+                lock.lock();
+                images.add(frame);
+                lock.unlock();
+            }
+            catch (Exception ex){
+
+            }
+        }
+    }
     public void Save(Mat frame){
-        lock.lock();
-        images.add(frame);
-        lock.unlock();
+        Thread thread = new Thread(new MyRunnable(frame));
+        thread.run();
     }
 
     public void Close(){
