@@ -30,7 +30,7 @@
             android:layout_width="80dp"
             android:layout_height="50dp"
             android:layout_margin="5dp"
-            android:text="MSB"
+            android:text="Stop"
             android:id="@+id/buttonStop"/>
     </LinearLayout>
         <org.opencv.android.JavaCameraView
@@ -42,12 +42,12 @@
             opencv:show_fps="true"
             opencv:camera_id="any"
             android:layout_below="@+id/text1"/>
-        <VideoView
-            android:id="@+id/videoView1"
+        <SurfaceView
             android:layout_width="fill_parent"
             android:layout_height="fill_parent"
             android:screenOrientation="portrait"
-            android:visibility="visible" />
+            android:visibility="visible"
+            android:id="@+id/surfaceView"/>
     <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

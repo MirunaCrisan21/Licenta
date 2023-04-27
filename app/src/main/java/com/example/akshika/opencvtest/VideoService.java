@@ -19,25 +19,26 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedList;
 import java.util.Locale;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class VideoService {
-    public VideoService(String path,Size size){
-        this.path = path;
-        outputPath = path+"/"+VIDEO_FILE_PREFIX+System.currentTimeMillis()+VIDEO_FILE_EXTENSION;
+    public VideoService(String OutputPath,Size size){
+        this.OutputPath = OutputPath;
+        outputPath = OutputPath+"/"+VIDEO_FILE_PREFIX+System.currentTimeMillis()+VIDEO_FILE_EXTENSION;
         matSize = size;
     }
-    private String path;
+    public String OutputPath;
     private static final String VIDEO_FILE_PREFIX = "VID_";
     private static final String VIDEO_FILE_EXTENSION = ".mp4";
     private static final int FRAME_RATE = 30;
     private static final int FRAME_WIDTH = 640;
     private static final int FRAME_HEIGHT = 480;
-    private Queue<String> videos = new PriorityQueue<>();
-    private Size matSize;
+    private Queue<String> videos = new LinkedList<>();
+    public Size matSize;
     private VideoWriter mVideoWriter;
     private Thread videoSavingThread = new Thread(new Runnable() {
         @Override
@@ -50,7 +51,7 @@ public class VideoService {
             }
         }
     });
-    private Queue<Mat> images = new PriorityQueue<>();
+    private Queue<Mat> images = new LinkedList<>();
     private String outputPath;
     ReentrantLock lock = new ReentrantLock();
     private void ThreadFunction() throws Exception {
@@ -71,57 +72,67 @@ public class VideoService {
         }
 
         // Create a VideoWriter object
-        VideoWriter writer = new VideoWriter( outputPath, VideoWriter.fourcc('H', '2', '6', '4'),
+        mVideoWriter = new VideoWriter( outputPath, VideoWriter.fourcc('H', '2', '6', '4'),
                                                 FRAME_RATE, matSize, true);
 
         while(true){
             lock.lock();
             try {
                 // Critical section here
-                if(!images.isEmpty())
+                if(!images.isEmpty() &&mVideoWriter.isOpened())
                     mVideoWriter.write(images.poll());
-            } finally {
+            } catch (Exception ex){
+                Log.e("Saving image",ex.getMessage());
+            }
+            finally {
                 lock.unlock();
             }
         }
     };
     public class MyRunnable implements Runnable {
 
-        public MyRunnable(Mat parameter) {
+        public MyRunnable(Mat parameter, boolean applyWatermark) {
             // store parameter for later user
             frame = parameter;
+            Watermark = applyWatermark;
         }
         private Mat frame;
+        private boolean Watermark;
         public void run() {
             try{
                 lock.lock();
-                images.add(frame);
-                lock.unlock();
+                if(Watermark)
+                    images.add(applyLSBWaterMark(frame));
+                else
+                    images.add(frame);
             }
             catch (Exception ex){
-
+                Log.e("Saving image",ex.getMessage());
+            }
+            finally{
+                lock.unlock();
             }
         }
     }
-    public void Save(Mat frame){
-        Thread thread = new Thread(new MyRunnable(frame));
-        thread.run();
+    public void Save(Mat frame,boolean applyWatermark){
+        Thread thread = new Thread(new MyRunnable(frame,applyWatermark));
+        thread.start();
     }
 
-    public void Close(){
+    public void CloseVideo(){
         if(videoSavingThread.isAlive()){
             videoSavingThread.interrupt();
             if(mVideoWriter!= null && mVideoWriter.isOpened()){
                 mVideoWriter.release();
                 videos.add(outputPath);
-                outputPath = path+VIDEO_FILE_PREFIX+System.currentTimeMillis()+VIDEO_FILE_EXTENSION;
+                outputPath = OutputPath+VIDEO_FILE_PREFIX+System.currentTimeMillis()+VIDEO_FILE_EXTENSION;
             }
         }
     }
 
     public void MakeVideo(){
         if(!videoSavingThread.isAlive()){
-            videoSavingThread.run();
+            videoSavingThread.start();
         }
     }
     public static boolean process = false;

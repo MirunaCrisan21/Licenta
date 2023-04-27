@@ -1,26 +1,30 @@
 package com.example.akshika.opencvtest;
 
-import static java.lang.Integer.MAX_VALUE;
-
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.res.AssetManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.media.MediaRecorder;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
-import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.VideoView;
+
+import com.example.akshika.opencvtest.MirVideoFormat.VideoReader;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
@@ -28,54 +32,48 @@ import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
-import org.opencv.core.DMatch;
 import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
-import org.opencv.core.MatOfDMatch;
-import org.opencv.core.MatOfKeyPoint;
-import org.opencv.core.Scalar;
 import org.opencv.core.Size;
-import org.opencv.features2d.DescriptorExtractor;
-import org.opencv.features2d.DescriptorMatcher;
-import org.opencv.features2d.FeatureDetector;
-import org.opencv.features2d.Features2d;
-import org.opencv.imgproc.Imgproc;
-import org.opencv.videoio.VideoWriter;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.LinkedList;
-import java.util.List;
-
 
 public class MainActivity extends Activity implements CameraBridgeViewBase.CvCameraViewListener2 {
-
-    private VideoService videoservice;
-    private VideoView videoViewer;
+    Thread playerThread;
+    boolean IsLoaded = false;
+    private Drawable backGroundColor;
+    private static final int PICKFILE_REQUEST_CODE = 223; // request code for the file picker activity
+    private VideoSavingService videoservice;
+    private MyFrameRunner frameReader;
+    private SurfaceView surfaceView;
+    private Surface surface ;
     private Button buttonLoad;
     private Button buttonStop;
-    private Button buttonStart;
+    private Button buttonRecord;
     private Button buttonWaterMark;
-    private boolean IsRecording = false;
-    private boolean IsReplaying = false;
-
+    boolean saveToVideo = false;
+    boolean applyWatermark = false;
     private static final String TAG = "OCVSample::Activity";
     private static final int REQUEST_PERMISSION = 100;
-    private int w, h;
+    private int actualVideoWidth, actualVideoHeight;
     private CameraBridgeViewBase CameraView;
-    TextView tvName;
-    FeatureDetector detector;
-    DescriptorExtractor descriptor;
-    Mat descriptors2;
-    MatOfKeyPoint keypoints2;
 
     static {
         if (!OpenCVLoader.initDebug())
             Log.d("ERROR", "Unable to load OpenCV");
         else
             Log.d("SUCCESS", "OpenCV loaded");
+    }
+
+    private void CheckPermission(String permission){
+        int REQUEST_CODE_WRITE_EXTERNAL_STORAGE_PERMISSION = 0;
+        if (ContextCompat.checkSelfPermission(getApplicationContext(), permission)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted, request it
+            ActivityCompat.requestPermissions(this,
+                    new String[]{permission},
+                    REQUEST_CODE_WRITE_EXTERNAL_STORAGE_PERMISSION);
+        }
     }
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
@@ -102,25 +100,9 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
 
     private void initializeOpenCVDependencies() throws IOException {
         CameraView.enableView();
-        detector = FeatureDetector.create(FeatureDetector.ORB);
-        descriptor = DescriptorExtractor.create(DescriptorExtractor.ORB);
-        /*
-        *         matcher = DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING);
-        img1 = new Mat();
-        AssetManager assetManager = getAssets();
-        InputStream istr = assetManager.open("a.jpeg");
-        Bitmap bitmap = BitmapFactory.decodeStream(istr);
-        Utils.bitmapToMat(bitmap, img1);
-        Imgproc.cvtColor(img1, img1, Imgproc.COLOR_RGB2GRAY);
-        img1.convertTo(img1, 0); //converting the image to match with the type of the cameras image
-        descriptors1 = new Mat();
-        keypoints1 = new MatOfKeyPoint();
-        detector.detect(img1, keypoints1);
-        descriptor.compute(img1, keypoints1, descriptors1);
-        * */
-
     }
 
+    private boolean cameraIsOn = false;
 
     public MainActivity() {
 
@@ -148,14 +130,15 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
                 WaterMarkVideo();
             }
         });
-        buttonStart = (Button) findViewById(R.id.buttonRecord);
-        buttonStart.setOnClickListener(new View.OnClickListener() {
+        buttonRecord = (Button) findViewById(R.id.buttonRecord);
+        buttonRecord.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                StartCamera();
+                SaveVideoCommand();
             }
         });
         buttonStop = (Button) findViewById(R.id.buttonStop);
+        backGroundColor = buttonStop.getBackground();
         buttonStop.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -170,39 +153,120 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
             }
         });
 
-        videoViewer = (VideoView) findViewById(R.id.videoView1);
-        videoViewer.setVisibility(View.INVISIBLE);
-
+        surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
+        surface = surfaceView.getHolder().getSurface();
+        surfaceView.setVisibility(View.INVISIBLE);
         StartCamera();
 
-        File outputDirectory = new File(String.valueOf(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)));
-        videoservice = new VideoService(outputDirectory.getPath(),new Size(CameraView.getHeight(),CameraView.getWidth()));
+        File outputDirectory = new File(String.valueOf(Environment.getExternalStorageDirectory()));
+        videoservice = new VideoSavingService(outputDirectory.getPath(),new Size(CameraView.getHeight(),CameraView.getWidth()));
+
+        CheckPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        CheckPermission(Manifest.permission.READ_EXTERNAL_STORAGE);
+        CheckPermission(Manifest.permission.CAMERA);
+        CheckPermission(Manifest.permission.MANAGE_DOCUMENTS);
+
+    }
+
+    public void SaveVideoCommand(){
+        if(!cameraIsOn)
+            StartCamera();
+        else{
+            saveToVideo = !saveToVideo;
+            if(saveToVideo){
+                try {
+                    videoservice.MakeVideo();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                buttonRecord.setBackgroundColor(0xAA00AA00);
+                buttonRecord.setEnabled(false);
+            }
+
+        }
     }
 
     private void WaterMarkVideo(){
+        if(applyWatermark){
+            applyWatermark = false;
 
+            buttonWaterMark.setBackgroundColor(0xAA00AA00);// 0xAARRGGBB
+        }else{
+            applyWatermark = true;
+            buttonWaterMark.setBackground(backGroundColor);
+        }
     }
 
     private void Stop(){
+        if(saveToVideo){
+            saveToVideo = false;
+            videoservice.StopWritingVideo();
+            buttonRecord.setBackground(backGroundColor);
+            buttonRecord.setEnabled(true);
+            buttonWaterMark.setBackground(backGroundColor);
+            applyWatermark = false;
+        }
+        saveToVideo = false;
+        if(playerThread!=null){
+            IsLoaded = false;
+            playerThread.interrupt();
+            videoservice.StopReadingVideo();
+            buttonRecord.setBackground(backGroundColor);
+            buttonRecord.setEnabled(true);
+        }
 
-        
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == PICKFILE_REQUEST_CODE && resultCode == RESULT_OK) {
+            if (data != null && data.getData() != null) {
+                Uri fileUri = data.getData();
+                String name ="/storage/emulated/0/"+ fileUri.getPath().split(":")[1];
+                frameReader = new MyFrameRunner(name,videoservice);
+            }
+        }
+    }
+
+
     private void Load(){
-        IsReplaying = false;
-        CameraView.setVisibility(View.INVISIBLE);
-        videoViewer.setVisibility(View.VISIBLE);
+        if(!IsLoaded){
+            // create an intent to launch the file picker activity
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.setType("*/*"); // specify that any file type can be selected
+
+            // start the activity for result
+            startActivityForResult(intent, PICKFILE_REQUEST_CODE);
+            buttonLoad.setBackgroundColor(0xAAAA0000);
+        }else{
+            //videoservice.OpenVideoReader(name,true);
+            CameraView.setVisibility(View.INVISIBLE);
+            surfaceView.setVisibility(View.VISIBLE);
+
+            //videoViewer.setVisibility(View.VISIBLE);
+            cameraIsOn = false;
+            saveToVideo = false;
+
+            playerThread = new Thread(frameReader);
+            playerThread.start();
+            buttonLoad.setBackgroundColor(0xAA00AA00);
+            buttonLoad.setEnabled(false);
+        }
+        IsLoaded = !IsLoaded;
     }
 
 
     private void StartCamera(){
         CameraView.setVisibility(View.VISIBLE);
-        videoViewer.setVisibility(View.INVISIBLE);
+        surfaceView.setVisibility(View.INVISIBLE);
+        //videoViewer.setVisibility(View.INVISIBLE);
         CameraView.setCvCameraViewListener(this);
         CameraView.enableView();
         CameraView.setMaxFrameSize(400,400);
-        tvName = (TextView) findViewById(R.id.text1);
-
+        cameraIsOn = true;
+        saveToVideo = false;
     }
 
     @Override
@@ -231,33 +295,55 @@ public class MainActivity extends Activity implements CameraBridgeViewBase.CvCam
     }
 
     public void onCameraViewStarted(int width, int height) {
-        w = width;
-        h = height;
+        actualVideoWidth = width;
+        actualVideoHeight = height;
+        videoservice.matSize = new Size(width,height);
     }
-
-    VideoWriter videoWriter;
 
     public void onCameraViewStopped() {
 
+    }
 
-    }
-    public void Write(Mat frame) {
-        if(videoWriter.isOpened()==false){
-            videoWriter.release();
-            throw new IllegalArgumentException("Video Writer Exception: VideoWriter not opened,"
-                    + "check parameters.");
-        }
-        //Write video
-        videoWriter.write(frame);
-    }
-    boolean saveToVideo = false;
-    Mat lastFrame;
-    int skipper = 0;
-    boolean applyWatermark = false;
     public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
-            if(saveToVideo){
-                videoservice.Save(inputFrame.rgba());
+        if(saveToVideo){
+            videoservice.Save(inputFrame.rgba(),applyWatermark);
+        }
+        return inputFrame.rgba();
+    }
+
+    public class MyFrameRunner implements Runnable {
+        private Mat frame;
+        private VideoSavingService service;
+        private String filePath;
+        public MyFrameRunner(String path,VideoSavingService videoService) {
+            // store parameter for later user
+            frame = new Mat();
+            filePath = path;
+            service = videoService;
+        }
+        @Override
+        public void run() {
+            service.StopWritingVideo();
+            service.StopReadingVideo();
+            //Canvas canvas = surface.lockCanvas(null);
+            //surface.unlockCanvasAndPost(canvas);
+            try {
+                VideoReader reader = service.OpenVideoReader(filePath,true);
+                while(reader.ReadAnotherFrame(frame)){
+                    //canvas = surface.lockCanvas(null);
+                    Bitmap bitmap = Bitmap.createBitmap(frame.cols(), frame.rows(), Bitmap.Config.ARGB_8888);
+                    Utils.matToBitmap(frame, bitmap);
+
+                    //canvas.drawBitmap(bitmap, 0, 0, null);
+                    //surface.unlockCanvasAndPost(canvas);
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
             }
-            return inputFrame.rgba();
+            finally {
+                //if(canvas!=null)
+                //    surface.unlockCanvasAndPost(canvas);
+            }
+        }
     }
 }
