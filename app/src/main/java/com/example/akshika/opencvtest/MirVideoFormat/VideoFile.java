@@ -1,5 +1,6 @@
 package com.example.akshika.opencvtest.MirVideoFormat;
 
+import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 
 public class VideoFile{
@@ -8,7 +9,6 @@ public class VideoFile{
 
 
     /**
-     *
      * @param sourceArray The array from which we want the data.
      * @param offset The offset where the int starts from.
      */
@@ -43,20 +43,27 @@ public class VideoFile{
         resultArray[offset+7] = (byte) (i /*>> 0*/);
     }
 
-    public static Mat CreateMatFromByteArray(byte[] array,int width, int heigth){
-        Mat matrix = new Mat(width,heigth,0);
-        for(int i=0;i<heigth;i++){
-            for(int j=0;j<width;j++){
-                matrix.put(i,j,GetPixel(array,i,j));
-            }
-        }
+    public static final byte[] intToByteArray(int value) {
+        return new byte[] {
+                (byte)(value >>> 24),
+                (byte)(value >>> 16),
+                (byte)(value >>> 8),
+                (byte)value};
+    }
 
+    /**
+     * Creates a Mat object that is a visual frame from a given array.
+     * @param array The byte aray containing the source information.
+     * @param width
+     * @param heigth
+     * @return
+     */
+
+    public static Mat CreateMatFromByteArray(byte[] array,int width, int heigth){
+        Mat matrix = new Mat(heigth,width, 24);
+
+        matrix.put(0,0,array);
         return matrix;
     }
 
-    private static double[] GetPixel(byte[] array, int line, int col){
-        double[] pixel = new double[4];
-
-        return pixel;
-    }
 }

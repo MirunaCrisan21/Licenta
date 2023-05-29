@@ -39,8 +39,8 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
     private boolean mSurfaceExist;
     private Object mSyncObject = new Object();
 
-    protected int mFrameWidth;
-    protected int mFrameHeight;
+    public int mFrameWidth;
+    public int mFrameHeight;
     protected int mMaxHeight;
     protected int mMaxWidth;
     protected float mScale = 0;
